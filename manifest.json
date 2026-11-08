@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "DeepTuck",
+  "version": "1.0.0",
+  "description": "自动折叠 DeepSeek 的思考、正文与输入框（原生弹窗控制）",
+  "permissions": ["storage", "activeTab"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "DeepTuck 设置"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": ["content.js"],
+      "css": ["style.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

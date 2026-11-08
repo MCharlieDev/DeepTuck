@@ -1,0 +1,166 @@
+/* DeepTuck v1.0.0 · style.css
+ * 所有视觉效果均由类名驱动，JS 不再写入任何行内样式。
+ */
+
+/* ============================================================
+   1. 正文折叠
+   用 mask-image 做底部渐隐，不向 DOM 插入任何遮罩 div
+   ============================================================ */
+
+.ds-markdown.ds-assistant-message-main-content.deeptuck-folded {
+  max-height: 240px !important;
+  overflow: hidden !important;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 64px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 64px),
+    transparent 100%
+  );
+  transition: max-height 0.25s ease;
+}
+
+/* 展开态：解除限高与渐隐 */
+.ds-markdown.ds-assistant-message-main-content.deeptuck-folded.deeptuck-expanded {
+  max-height: none !important;
+  overflow: visible !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+
+/* 分享选择界面（--printable）会强制展开所有内容，用更高优先级把折叠态夺回来 */
+body.deeptuck-active
+  .ds-virtual-list--printable
+  .ds-message
+  .ds-markdown.ds-assistant-message-main-content.deeptuck-folded {
+  max-height: 240px !important;
+  height: auto !important;
+  overflow: hidden !important;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 64px),
+    transparent 100%
+  ) !important;
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 64px),
+    transparent 100%
+  ) !important;
+}
+
+body.deeptuck-active
+  .ds-virtual-list--printable
+  .ds-message
+  .ds-markdown.ds-assistant-message-main-content.deeptuck-folded.deeptuck-expanded {
+  max-height: none !important;
+  overflow: visible !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+
+/* 分享选择界面会禁用消息内所有指针事件，这里把按钮单独抬回可点击状态 */
+body.deeptuck-active
+  .ds-virtual-list--printable
+  .ds-message
+  .deeptuck-fold-btn {
+  pointer-events: auto !important;
+}
+
+/* ============================================================
+   2. 展开 / 收起按钮
+   视觉对齐原生“已思考”折叠标题：小号弱化文字 + 旋转箭头 + 悬停浅底
+   按钮追加在每条对话末尾，纯文档流布局，不覆盖也不进入原生操作栏
+   ============================================================ */
+
+.deeptuck-fold-btn {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 10px;
+  padding: 3px 9px 3px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.8;
+  opacity: 0.58;
+  cursor: pointer;
+  /* 分享选择界面的正文/思考区会被注入 pointer-events-none，按钮需独立可点 */
+  pointer-events: auto;
+  /* 避免父级 flex 布局把按钮拉满高度/宽度 */
+  flex: 0 0 auto;
+  align-self: flex-start;
+  /* 抬到消息选择热区之上，避免点击被透明覆盖层吃掉 */
+  position: relative;
+  z-index: 2;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.deeptuck-fold-btn:hover {
+  opacity: 0.9;
+  background: rgba(128, 128, 128, 0.12);
+}
+
+.deeptuck-fold-btn:active {
+  background: rgba(128, 128, 128, 0.2);
+}
+
+.deeptuck-fold-btn:focus-visible {
+  outline: 2px solid rgba(77, 107, 254, 0.7);
+  outline-offset: 2px;
+}
+
+.deeptuck-fold-text {
+  white-space: nowrap;
+}
+
+.deeptuck-fold-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  /* 折叠态箭头朝右，展开态箭头朝下，与原生思考标题一致 */
+  transform: rotate(-90deg);
+  transition: transform 0.2s ease;
+}
+
+.deeptuck-fold-btn[aria-expanded="true"] .deeptuck-fold-icon {
+  transform: rotate(0deg);
+}
+
+/* ============================================================
+   3. 输入框限高
+   只锁定 textarea 自身，不依赖任何父级结构
+   ============================================================ */
+
+textarea.deeptuck-composer[name="search"] {
+  max-height: 160px !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+
+/* 官方滚动条槽按未限高的 --container-height 绘制，限高后会露出一截空槽；
+   这里隐藏该槽，改用 textarea 自身的细滚动条 */
+div:has(> textarea.deeptuck-composer[name="search"]) > .ds-scroll-area__gutters {
+  display: none !important;
+}
+
+textarea.deeptuck-composer[name="search"]::-webkit-scrollbar {
+  width: 6px;
+}
+
+textarea.deeptuck-composer[name="search"]::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.45);
+  border-radius: 3px;
+}
+
+textarea.deeptuck-composer[name="search"]::-webkit-scrollbar-track {
+  background: transparent;
+}

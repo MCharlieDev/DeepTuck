@@ -12,8 +12,9 @@ DeepTuck 是一个 Manifest V3 浏览器扩展，用于优化 DeepSeek 网页版
 
 1. 自动折叠 AI 的“思考过程”
 2. 长回答超过 240px 时折叠，并提供“展开全文 / 收起”
-3. 限制输入框高度，避免长文本把输入框无限撑高
-4. 同时适配普通聊天页、分享选择界面和只读分享页
+3. 同时适配普通聊天页、分享选择界面和只读分享页
+
+> 输入框高度限制在 v1.0.1 中已移除，输入框保持 DeepSeek 原生行为。
 
 ---
 
@@ -23,7 +24,7 @@ DeepTuck 是一个 Manifest V3 浏览器扩展，用于优化 DeepSeek 网页版
 | --- | --- |
 | `manifest.json` | MV3 配置，匹配 `https://chat.deepseek.com/*` |
 | `content.js` | 页面注入逻辑：折叠、状态管理、滚动锚定 |
-| `style.css` | 全部视觉样式：遮罩、按钮、输入框限高 |
+| `style.css` | 全部视觉样式：遮罩、按钮 |
 | `popup.html` / `popup.js` | 全局启用/关闭开关，状态存 `chrome.storage.local` |
 | `docs/` | 重构纲要与 DeepSeek DOM 样式细节记录 |
 
@@ -61,17 +62,11 @@ DeepTuck 是一个 Manifest V3 浏览器扩展，用于优化 DeepSeek 网页版
   - 折叠态箭头朝右，展开态箭头朝下。
 - 展开/收起通过 `.deeptuck-expanded` 类名切换，按钮文案和 `aria-expanded` 同步。
 
-### 3. 输入框限高
-
-- 只给 `textarea[name="search"]` 加 `.deeptuck-composer` 类名。
-- 纯 CSS 限制 `max-height: 160px` 和 `overflow-y: auto`，不依赖父级结构。
-- 隐藏官方 `.ds-scroll-area__gutters`（其高度按未限高的 `--container-height` 绘制），改用 textarea 自身细滚动条。
-
-### 4. 页面类型适配
+### 3. 页面类型适配
 
 | 页面 | 行为 |
 | --- | --- |
-| 普通聊天页 | CSS 挂载即限高；最新回答自动折叠思考块；输入框限高 |
+| 普通聊天页 | CSS 挂载即限高；最新回答自动折叠思考块 |
 | 分享选择界面 | `--printable` 页面同样从挂载即限高；按钮覆盖在正文底部；不依赖免责声明 |
 | 只读分享内容 | 正文可能带 `pointer-events-none`，按钮单独恢复 `pointer-events` |
 
@@ -82,7 +77,7 @@ DeepTuck 是一个 Manifest V3 浏览器扩展，用于优化 DeepSeek 网页版
 - 按钮使用 `position: relative; z-index: 2` 抬到选择热区之上。
 - 按钮使用 `flex: 0 0 auto; align-self: flex-start`，避免被父级 flex 拉满高度。
 
-### 5. 状态与容错
+### 4. 状态与容错
 
 - 不使用 `data-deeptuck-*` 属性，全部状态保存在内存：
   - `processedMessages`：已处理的消息
@@ -98,7 +93,7 @@ DeepTuck 是一个 Manifest V3 浏览器扩展，用于优化 DeepSeek 网页版
 - 正文的 240px 限高由 CSS 在挂载时应用，思考正文默认隐藏；JS 注入的类名和按钮不会改变 item 高度。
 - 单条消息处理异常会被隔离，并输出 `[DeepTuck] processMessage failed:` 警告，不影响其它消息。
 
-### 6. 视口锚定（防折叠弹跳）
+### 5. 视口锚定（防折叠弹跳）
 
 折叠会减少消息高度，导致视口内容上移。当前实现：
 
@@ -111,13 +106,13 @@ DeepTuck 是一个 Manifest V3 浏览器扩展，用于优化 DeepSeek 网页版
 7. 已移除 `max-height` 过渡动画，避免滚动补偿滞后。
 8. 历史正文与思考块都由 CSS 在挂载时折叠，不再在挂载后改高度，因此上滑抖动的主来源已被移除。
 
-### 7. 开关
+### 6. 开关
 
 - popup 开关写入 `chrome.storage.local` 的 `deeptuck_enabled`。
 - 关闭时：
   - 断开 MutationObserver
   - 取消待执行的 rAF
-  - 移除所有 `.deeptuck-folded` / `.deeptuck-expanded` / 按钮 / 输入框类名
+  - 移除所有 `.deeptuck-folded` / `.deeptuck-expanded` / 按钮
   - 展开内容时同样做视口锚定
 
 ---
@@ -129,7 +124,6 @@ DeepTuck 是一个 Manifest V3 浏览器扩展，用于优化 DeepSeek 网页版
 - 抛弃 `data-deeptuck-*`，改用 `WeakSet` / `WeakMap`。
 - 用 `mask-image` 替代 JS 插入遮罩 `div`。
 - 按钮移出 `.ds-markdown`，改为正文之后插入。
-- 输入框只加类名，纯 CSS 限高。
 - 精准选择器替代全局 `span` 扫描和 `parentElement.parentElement`。
 
 ### 第 2 轮：按钮视觉与布局
@@ -137,7 +131,6 @@ DeepTuck 是一个 Manifest V3 浏览器扩展，用于优化 DeepSeek 网页版
 - 按钮改为原生“已思考”风格：12px 弱化文字 + 箭头 + 悬停浅底。
 - 箭头状态与原生一致：折叠朝右、展开朝下。
 - 按钮放在每条对话末尾，不覆盖也不进入原生底部操作栏。
-- 隐藏输入框上方按 `--container-height` 绘制的滚动条槽。
 
 ### 第 3 轮：分享选择界面适配
 
@@ -272,29 +265,25 @@ DeepTuck 是一个 Manifest V3 浏览器扩展，用于优化 DeepSeek 网页版
     - 我们的方案依赖站点在展开态时保留 `.ds-think-content`。
     - 如果站点改成按需渲染/移除思考正文，展开逻辑需要调整。
 
-15. **输入框高度固定为 160px**
-    - 没有可配置项，也没有多档高度选择。
-    - 隐藏 gutter 使用 `:has()`，仅 Chromium 支持（当前 MV3 目标可用）。
-
-16. **无自动化测试**
+15. **无自动化测试**
     - 依赖 mock 页面 + 无头 Chrome 手工验证。
     - 没有正式测试用例，官方改版后的回归风险较高。
 
-17. **文档版本不一致**
-    - `docs/DeepTuck 重构纲领.md` 仍写 `v4.0 规划`，与当前 `v1.0.0` 功能文档不一致。
+16. **文档版本不一致**
+    - `docs/DeepTuck 重构纲领.md` 仍写 `v4.0 规划`，与当前 `v1.0.1` 功能文档不一致。
     - 待做：统一版本口径或标注为历史规划。
 
-18. **性能开销**
+17. **性能开销**
     - MutationObserver 监听全页 `class` 变化（虽只做轻量匹配）。
-    - 思考块处理会在消息内扫描 `span`，超长对话仍有开销。
+    - 思考块改为 CSS 折叠后不再扫描 `span`，但全页 class 监听仍有开销。
 
-19. **可访问性**
+18. **可访问性**
     - 按钮有 `aria-expanded`，但没有键盘快捷键或焦点管理。
     - 预折叠可能在屏幕阅读器中造成上下文跳变。
 
-20. **发布流程未完成**
+19. **发布流程未完成**
     - 尚无 README、商店截图、更新日志、打包产物。
-    - 第 7 轮 B 方案改动已随 `v1.0.1` 提交。
+    - 第 7 轮 B 方案改动已随 `v1.0.1` 提交；输入框限高已移除。
 
 ---
 

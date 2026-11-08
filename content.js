@@ -10,7 +10,6 @@
   const MSG_SELECTOR = '.ds-message';
   const MAIN_CONTENT_SELECTOR = '.ds-markdown.ds-assistant-message-main-content';
   const THINK_CONTENT_SELECTOR = '.ds-think-content';
-  const TEXTAREA_SELECTOR = 'textarea[name="search"]';
 
   // 思考标题容器的已知动态类名；未命中时退回最近的 div 祖先
   const THINK_HEADER_CLASSES = '._245c867, ._34a54ec';
@@ -23,7 +22,6 @@
   const BTN_CLASS = 'deeptuck-fold-btn';
   const BTN_TEXT_CLASS = 'deeptuck-fold-text';
   const BTN_ICON_CLASS = 'deeptuck-fold-icon';
-  const COMPOSER_CLASS = 'deeptuck-composer';
   const ACTIVE_CLASS = 'deeptuck-active';
 
   // ============================================================
@@ -40,7 +38,6 @@
   let enabled = false;
   let observer = null;
   let rafId = 0;
-  let composerEl = null;
 
   // ============================================================
   // 工具函数
@@ -374,24 +371,7 @@
   }
 
   // ============================================================
-  // 4. 输入框标记（只打类名，高度交给 CSS，不找父节点）
-  // ============================================================
-
-  function ensureComposer() {
-    if (!enabled) return;
-    if (
-      composerEl &&
-      composerEl.isConnected &&
-      composerEl.classList.contains(COMPOSER_CLASS)
-    ) {
-      return;
-    }
-    composerEl = document.querySelector(TEXTAREA_SELECTOR);
-    if (composerEl) composerEl.classList.add(COMPOSER_CLASS);
-  }
-
-  // ============================================================
-  // 5. 观察与调度
+  // 4. 观察与调度
   // ============================================================
 
   /** 从新增节点中收集“可能相关”的消息，避免整页扫描 */
@@ -426,8 +406,6 @@
   function flush() {
     rafId = 0;
     if (!enabled) return;
-
-    ensureComposer();
 
     pendingMessages.forEach(function (msg) {
       if (!msg || !msg.isConnected) {
@@ -508,7 +486,7 @@
   }
 
   // ============================================================
-  // 6. 启动 / 停止
+  // 5. 启动 / 停止
   // ============================================================
 
   function resetState() {
@@ -517,7 +495,6 @@
     foldedContents = new WeakSet();
     messageIdentity = new WeakMap();
     pendingMessages.clear();
-    composerEl = null;
   }
 
   function start() {
@@ -548,7 +525,6 @@
       pendingMessages.add(msg);
     });
 
-    ensureComposer();
     scheduleFlush();
   }
 
@@ -579,16 +555,13 @@
     document.querySelectorAll('.' + BTN_CLASS).forEach(function (el) {
       el.remove();
     });
-    document.querySelectorAll('.' + COMPOSER_CLASS).forEach(function (el) {
-      el.classList.remove(COMPOSER_CLASS);
-    });
 
     restoreScrollSnapshot(snapshot);
     resetState();
   }
 
   // ============================================================
-  // 7. 与 popup 通信 + 初始化
+  // 6. 与 popup 通信 + 初始化
   // ============================================================
 
   // 拦截原生“已思考”标题点击，由我们的类名控制展开/收起

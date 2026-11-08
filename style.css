@@ -179,33 +179,3 @@ body.deeptuck-active .ds-message.deeptuck-think-open ._34a54ec svg {
 .deeptuck-fold-btn[aria-expanded="true"] .deeptuck-fold-icon {
   transform: rotate(0deg);
 }
-
-/* ============================================================
-   3. 输入框限高
-   只锁定 textarea 自身，不依赖任何父级结构
-   ============================================================ */
-
-textarea.deeptuck-composer[name="search"] {
-  max-height: 160px !important;
-  overflow-y: auto !important;
-  overscroll-behavior: contain;
-}
-
-/* 官方滚动条槽按未限高的 --container-height 绘制，限高后会露出一截空槽；
-   这里隐藏该槽，改用 textarea 自身的细滚动条 */
-div:has(> textarea.deeptuck-composer[name="search"]) > .ds-scroll-area__gutters {
-  display: none !important;
-}
-
-textarea.deeptuck-composer[name="search"]::-webkit-scrollbar {
-  width: 6px;
-}
-
-textarea.deeptuck-composer[name="search"]::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.45);
-  border-radius: 3px;
-}
-
-textarea.deeptuck-composer[name="search"]::-webkit-scrollbar-track {
-  background: transparent;
-}

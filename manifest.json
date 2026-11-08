@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DeepTuck",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "自动折叠 DeepSeek 的思考、正文与输入框（原生弹窗控制）",
   "permissions": ["storage", "activeTab"],
   "action": {

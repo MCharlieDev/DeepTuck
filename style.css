@@ -1,15 +1,49 @@
-/* DeepTuck v1.0.0 · style.css
- * 所有视觉效果均由类名驱动，JS 不再写入任何行内样式。
+/* DeepTuck v1.0.1 · style.css
+ * B 方案：正文在挂载时就按 240px 参与布局测量，JS 只负责视觉折叠。
+ * 所有视觉效果均由类名驱动；按钮使用零高度覆盖式布局，避免改变 item 高度。
  */
 
 /* ============================================================
    1. 正文折叠
-   用 mask-image 做底部渐隐，不向 DOM 插入任何遮罩 div
    ============================================================ */
 
-.ds-markdown.ds-assistant-message-main-content.deeptuck-folded {
+/* 挂载即限高：虚拟列表测量到的就是折叠后的高度，避免挂载后再突变 */
+body.deeptuck-active .ds-markdown.ds-assistant-message-main-content {
   max-height: 240px !important;
   overflow: hidden !important;
+}
+
+/* 展开态：解除限高与渐隐 */
+body.deeptuck-active
+  .ds-markdown.ds-assistant-message-main-content.deeptuck-expanded {
+  max-height: none !important;
+  overflow: visible !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+
+/* 分享选择界面会强制展开所有内容，从挂载开始就用更高优先级压住 */
+body.deeptuck-active
+  .ds-virtual-list--printable
+  .ds-message
+  .ds-markdown.ds-assistant-message-main-content {
+  max-height: 240px !important;
+  height: auto !important;
+  overflow: hidden !important;
+}
+
+body.deeptuck-active
+  .ds-virtual-list--printable
+  .ds-message
+  .ds-markdown.ds-assistant-message-main-content.deeptuck-expanded {
+  max-height: none !important;
+  overflow: visible !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+
+/* 长正文的底部渐隐（由 JS 添加 .deeptuck-folded 后生效） */
+.ds-markdown.ds-assistant-message-main-content.deeptuck-folded {
   -webkit-mask-image: linear-gradient(
     to bottom,
     #000 calc(100% - 64px),
@@ -22,15 +56,7 @@
   );
 }
 
-/* 展开态：解除限高与渐隐 */
-.ds-markdown.ds-assistant-message-main-content.deeptuck-folded.deeptuck-expanded {
-  max-height: none !important;
-  overflow: visible !important;
-  -webkit-mask-image: none !important;
-  mask-image: none !important;
-}
-
-/* 分享选择界面（--printable）会强制展开所有内容，用更高优先级把折叠态夺回来 */
+/* 分享选择界面的更高优先级兜底（部分页面会用 !important 强制展开） */
 body.deeptuck-active
   .ds-virtual-list--printable
   .ds-message
@@ -68,19 +94,42 @@ body.deeptuck-active
   pointer-events: auto !important;
 }
 
+/* 思考块从挂载起就视觉折叠：内容不参与布局，虚拟列表测量稳定 */
+body.deeptuck-active .ds-message .ds-think-content {
+  display: none !important;
+}
+
+body.deeptuck-active .ds-message.deeptuck-think-open .ds-think-content {
+  display: block !important;
+}
+
+/* 原生箭头方向：默认收起朝右，展开时朝下 */
+body.deeptuck-active .ds-message ._245c867 svg,
+body.deeptuck-active .ds-message ._34a54ec svg {
+  transform: rotate(-90deg);
+  transition: transform 0.2s ease;
+}
+
+body.deeptuck-active .ds-message.deeptuck-think-open ._245c867 svg,
+body.deeptuck-active .ds-message.deeptuck-think-open ._34a54ec svg {
+  transform: rotate(0deg);
+}
+
 /* ============================================================
    2. 展开 / 收起按钮
    视觉对齐原生“已思考”折叠标题：小号弱化文字 + 旋转箭头 + 悬停浅底
-   按钮追加在每条对话末尾，纯文档流布局，不覆盖也不进入原生操作栏
+   绝对定位覆盖在正文底部，不参与布局，不改变 item 高度
    ============================================================ */
 
 .deeptuck-fold-btn {
   display: flex;
   width: fit-content;
+  height: 28px;
+  box-sizing: border-box;
   align-items: center;
   gap: 4px;
-  margin: 4px 0 10px;
-  padding: 3px 9px 3px 8px;
+  margin: 0;
+  padding: 0 9px 0 8px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -93,11 +142,8 @@ body.deeptuck-active
   cursor: pointer;
   /* 分享选择界面的正文/思考区会被注入 pointer-events-none，按钮需独立可点 */
   pointer-events: auto;
-  /* 避免父级 flex 布局把按钮拉满高度/宽度 */
-  flex: 0 0 auto;
-  align-self: flex-start;
-  /* 抬到消息选择热区之上，避免点击被透明覆盖层吃掉 */
-  position: relative;
+  /* 绝对定位，不增加消息高度；top/left 由 JS 按正文位置计算 */
+  position: absolute;
   z-index: 2;
   -webkit-tap-highlight-color: transparent;
   transition: opacity 0.15s ease, background-color 0.15s ease;

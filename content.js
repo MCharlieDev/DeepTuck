@@ -1,4 +1,4 @@
-/* DeepTuck v1.0.0 · content.js
+/* DeepTuck v1.0.1 · content.js
  * 原则：内存态（WeakSet/WeakMap）+ CSS 驱动样式 + DOM 最小侵入 + 精准查询
  */
 (function () {
@@ -10,24 +10,12 @@
   const MSG_SELECTOR = '.ds-message';
   const MAIN_CONTENT_SELECTOR = '.ds-markdown.ds-assistant-message-main-content';
   const THINK_CONTENT_SELECTOR = '.ds-think-content';
-  const DISCLAIMER_SELECTOR = '.dbe8cf4a';
-  // 分享选择界面使用的是另一套哈希类名
-  const SHARE_DISCLAIMER_SELECTOR = '._0fcaa63';
-  // 分享选择界面的虚拟列表专属类名：此界面为只读，无流式输出
-  const SHARE_LIST_SELECTOR = '.ds-virtual-list--printable';
   const TEXTAREA_SELECTOR = 'textarea[name="search"]';
 
   // 思考标题容器的已知动态类名；未命中时退回最近的 div 祖先
   const THINK_HEADER_CLASSES = '._245c867, ._34a54ec';
 
-  const THINK_LABEL_KEYWORD = '已思考';
-  // 普通聊天页 / 分享选择界面 / 公开分享页的免责声明文案
-  const COMPLETION_KEYWORDS = [
-    '本回答由 AI 生成',
-    '内容由 AI 生成',
-    '内容仅供参考',
-    '请仔细甄别',
-  ];
+  const THINK_OPEN_CLASS = 'deeptuck-think-open';
   const MAX_CONTENT_HEIGHT = 240;
 
   const FOLD_CLASS = 'deeptuck-folded';
@@ -42,8 +30,7 @@
   // 内存态：全部挂在内存里，节点被虚拟列表销毁时自动释放
   // ============================================================
   let processedMessages = new WeakSet();      // 已完成折叠判定的 .ds-message
-  let handledThinkHeaders = new WeakSet();    // 已点击过的思考标题
-  let thinkResolvedMessages = new WeakSet();  // 思考块已处理过的消息
+  let thinkOpenMessages = new WeakSet();      // 用户手动展开过思考块的消息（用于恢复类名）
   let foldedContents = new WeakSet();         // 曾被我们折叠过的正文（用于类名被 React 重置后恢复）
   let messageIdentity = new WeakMap();        // .ds-message -> 虚拟列表 key（识别节点复用）
 
@@ -54,7 +41,6 @@
   let observer = null;
   let rafId = 0;
   let composerEl = null;
-  let shareView = false; // 当前是否为分享选择界面（该界面无流式输出、也常常没有免责声明）
 
   // ============================================================
   // 工具函数
@@ -64,24 +50,6 @@
   function readVirtualKey(msg) {
     const item = msg.closest('[data-virtual-list-item-key]');
     return item ? item.getAttribute('data-virtual-list-item-key') : null;
-  }
-
-  /** 元素是否真实可见（用于判断思考块是否已被官方默认折叠） */
-  function isVisible(el) {
-    if (!el || !el.isConnected || el.hidden) return false;
-    const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
-
-  /** 是否是“已思考（用时 X 秒）”这类标题文案，避免误伤正文里的同名文字 */
-  function isThinkLabel(text) {
-    if (!text || text.indexOf(THINK_LABEL_KEYWORD) === -1) return false;
-    return (
-      text.indexOf('用时') !== -1 ||
-      text.indexOf('秒') !== -1 ||
-      text.indexOf('（') !== -1 ||
-      text.indexOf('(') !== -1
-    );
   }
 
   /** 找到真正负责纵向滚动的祖先容器 */
@@ -195,80 +163,52 @@
 
   // ============================================================
   // 1. 思考过程折叠
+  // 思考内容由 CSS 在挂载时直接隐藏，这里只负责原生标题的展开/收起
   // ============================================================
 
-  function handleThinkBlock(msg) {
-    if (thinkResolvedMessages.has(msg)) return;
+  function handleThinkHeaderClick(event) {
+    if (!enabled) return;
+    const target = event.target;
+    if (!target || !target.closest) return;
 
-    // 没有思考块时直接跳过，避免无意义地扫描 span
+    const header = target.closest(THINK_HEADER_CLASSES);
+    if (!header) return;
+    const msg = header.closest(MSG_SELECTOR);
+    if (!msg) return;
+
     const thinkContent = msg.querySelector(THINK_CONTENT_SELECTOR);
-    if (!thinkContent) return;
 
-    // 先定位包含“已思考”字样的 span（只在本条消息内查找，绝不全局遍历）
-    const spans = msg.querySelectorAll('span');
-    let labelSpan = null;
-    for (let i = 0; i < spans.length; i++) {
-      const span = spans[i];
-      if (!isThinkLabel(span.textContent)) continue;
-      // 排除主回答正文里的同名文字（只排除 assistant 正文容器，避免误伤）
-      if (span.closest(MAIN_CONTENT_SELECTOR)) continue;
-      labelSpan = span;
-      break;
-    }
-    if (!labelSpan) return; // 可能还处于“思考中”，等下一批 mutation 再试
-
-    // 再 closest 到它的外层父元素（思考标题不是 button，也没有 role）
-    const header =
-      labelSpan.closest(THINK_HEADER_CLASSES) ||
-      labelSpan.closest('div') ||
-      labelSpan.parentElement;
-
-    if (!header || typeof header.click !== 'function') return;
-
-    thinkResolvedMessages.add(msg);
-
-    if (handledThinkHeaders.has(header)) return;
-
-    // 若思考正文已不可见，说明官方已默认折叠，此时点击反而会展开
-    if (!isVisible(thinkContent)) {
-      handledThinkHeaders.add(header);
+    // 站点自身处于折叠态（内容不存在）：让它按原生逻辑展开，下一帧再接管显示
+    if (!thinkContent) {
+      const snapshot = captureScrollSnapshot(msg);
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          if (!msg.isConnected) return;
+          if (msg.querySelector(THINK_CONTENT_SELECTOR)) {
+            msg.classList.add(THINK_OPEN_CLASS);
+            thinkOpenMessages.add(msg);
+            repositionFoldButtonInMessage(msg);
+          }
+          restoreScrollSnapshot(snapshot, true);
+        });
+      });
       return;
     }
 
-    handledThinkHeaders.add(header);
-    header.click();
+    // 站点默认是展开态：拦截原生点击，改为由我们的类名控制显示
+    event.preventDefault();
+    event.stopPropagation();
+
+    const snapshot = captureScrollSnapshot(msg);
+    const open = msg.classList.toggle(THINK_OPEN_CLASS);
+    if (open) thinkOpenMessages.add(msg);
+    else thinkOpenMessages.delete(msg);
+    repositionFoldButtonInMessage(msg);
+    restoreScrollSnapshot(snapshot);
   }
 
   // ============================================================
-  // 2. 回答完成判定
-  // ============================================================
-
-  function isMessageComplete(msg) {
-    const selectors = [DISCLAIMER_SELECTOR, SHARE_DISCLAIMER_SELECTOR];
-
-    for (let i = 0; i < selectors.length; i++) {
-      const selector = selectors[i];
-      // 最可靠信号：末尾免责声明节点（普通页 / 分享选择页各有一套哈希类名）
-      if (msg.querySelector(selector)) return true;
-
-      const next = msg.nextElementSibling;
-      if (next && next.matches && next.matches(selector)) return true;
-
-      // 免责声明可能挂在虚拟列表项这一层，而不是 .ds-message 内部
-      const item = msg.closest('[data-virtual-list-item-key]');
-      if (item && item.querySelector(selector)) return true;
-    }
-
-    // 降级信号：免责声明文案（兼容类名哈希变动）
-    const text = msg.textContent || '';
-    for (let i = 0; i < COMPLETION_KEYWORDS.length; i++) {
-      if (text.indexOf(COMPLETION_KEYWORDS[i]) !== -1) return true;
-    }
-    return false;
-  }
-
-  // ============================================================
-  // 3. 正文折叠
+  // 2. 正文折叠
   // ============================================================
 
   /** 与原生“已思考”标题一致的折叠箭头 */
@@ -292,15 +232,43 @@
     return icon;
   }
 
-  /** 按钮直接追加到每条对话的末尾；分享页没有原生操作栏时同样能落位 */
+  /** 按正文位置把绝对定位按钮放到正文底部（不参与布局） */
+  function positionFoldButton(content, btn, host) {
+    if (!content || !btn || !host || !content.isConnected) return;
+    if (getComputedStyle(host).position === 'static') {
+      host.style.position = 'relative';
+    }
+    const hostRect = host.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
+    btn.style.position = 'absolute';
+    btn.style.left =
+      Math.max(0, Math.round(contentRect.left - hostRect.left - host.clientLeft)) + 'px';
+    btn.style.top =
+      Math.max(0, Math.round(contentRect.bottom - hostRect.top - host.clientTop - 28)) + 'px';
+  }
+
+  function repositionFoldButtonInMessage(msg) {
+    if (!msg) return;
+    const content = msg.querySelector(MAIN_CONTENT_SELECTOR);
+    const btn = msg.querySelector('.' + BTN_CLASS);
+    if (content && btn) positionFoldButton(content, btn, msg);
+  }
+
+  function repositionAllFoldButtons() {
+    document.querySelectorAll(MSG_SELECTOR).forEach(function (msg) {
+      repositionFoldButtonInMessage(msg);
+    });
+  }
+
+  /** 按钮追加到消息末尾并用绝对定位覆盖在正文底部，不改变 item 高度 */
   function insertFoldButton(content, btn) {
-    const host = content.closest(MSG_SELECTOR);
-    if (host) {
-      host.appendChild(btn);
+    const host = content.closest(MSG_SELECTOR) || content.parentElement;
+    if (!host) {
+      content.insertAdjacentElement('afterend', btn);
       return;
     }
-    // 极端结构下退回“正文后一个兄弟节点”
-    content.insertAdjacentElement('afterend', btn);
+    host.appendChild(btn);
+    positionFoldButton(content, btn, host);
   }
 
   function foldContent(content) {
@@ -313,7 +281,10 @@
       (next && next.classList && next.classList.contains(BTN_CLASS));
 
     // 类名和按钮都在，才是完整折叠态
-    if (existingBtn && content.classList.contains(FOLD_CLASS)) return;
+    if (existingBtn && content.classList.contains(FOLD_CLASS)) {
+      if (host) repositionFoldButtonInMessage(host);
+      return;
+    }
 
     // 高度即将变化，先锁定当前视口锚点
     const snapshot = captureScrollSnapshot(content);
@@ -323,6 +294,7 @@
 
     // 类名还在、只是按钮被抹掉了：只补按钮，不动用户展开状态
     if (existingBtn) {
+      if (host) repositionFoldButtonInMessage(host);
       restoreScrollSnapshot(snapshot);
       return;
     }
@@ -361,11 +333,12 @@
     const label = btn.querySelector('.' + BTN_TEXT_CLASS);
     if (label) label.textContent = expanded ? '收起' : '展开全文';
     btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    repositionFoldButtonInMessage(content.closest(MSG_SELECTOR));
     restoreScrollSnapshot(snapshot);
   }
 
   // ============================================================
-  // 4. 单条消息处理（返回 true 表示本轮已处理完毕）
+  // 3. 单条消息处理（返回 true 表示本轮已处理完毕）
   // ============================================================
 
   function processMessage(msg) {
@@ -378,23 +351,18 @@
       if (messageIdentity.get(msg) === key && !artifactsLost(msg)) return true;
       // 节点被虚拟列表复用，或 React 重渲染抹掉了类名/按钮：清理后重新处理
       processedMessages.delete(msg);
-      thinkResolvedMessages.delete(msg);
       clearArtifacts(msg);
     }
     messageIdentity.set(msg, key);
 
-    // 思考块可以早于回答完成，先处理
-    handleThinkBlock(msg);
-
-    // 流式输出期间不折叠正文，等免责声明出现；
-    // 分享选择界面是只读快照，没有免责声明节点，直接视为已完成
-    if (!shareView && !isMessageComplete(msg)) return false;
+    // B 方案：正文已在 CSS 层挂载即限高，这里只补渐隐与按钮，不再等免责声明
     processedMessages.add(msg);
 
     const content = msg.querySelector(MAIN_CONTENT_SELECTOR);
     if (!content) return true;
-    // 类名在但按钮被抹掉时，也要重新走一遍补按钮
+    // 类名和按钮都在：只校正按钮位置
     if (content.classList.contains(FOLD_CLASS) && msg.querySelector('.' + BTN_CLASS)) {
+      repositionFoldButtonInMessage(msg);
       return true;
     }
 
@@ -406,7 +374,7 @@
   }
 
   // ============================================================
-  // 5. 输入框标记（只打类名，高度交给 CSS，不找父节点）
+  // 4. 输入框标记（只打类名，高度交给 CSS，不找父节点）
   // ============================================================
 
   function ensureComposer() {
@@ -423,7 +391,7 @@
   }
 
   // ============================================================
-  // 6. 观察与调度
+  // 5. 观察与调度
   // ============================================================
 
   /** 从新增节点中收集“可能相关”的消息，避免整页扫描 */
@@ -459,9 +427,6 @@
     rafId = 0;
     if (!enabled) return;
 
-    // 每个批次重新判定一次，进入/退出分享选择界面时都能及时切换
-    shareView = !!document.querySelector(SHARE_LIST_SELECTOR);
-
     ensureComposer();
 
     pendingMessages.forEach(function (msg) {
@@ -490,6 +455,12 @@
 
       if (mutation.type === 'childList') {
         mutation.addedNodes.forEach(collectCandidates);
+        // 节点被移除（例如 React 抹掉我们的按钮）时也要重新检查所属消息
+        const target = mutation.target;
+        if (target && target.nodeType === 1 && target.closest) {
+          const owner = target.closest(MSG_SELECTOR);
+          if (owner) pendingMessages.add(owner);
+        }
         needsFlush = true;
       } else if (mutation.type === 'characterData') {
         const parent = mutation.target && mutation.target.parentElement;
@@ -503,9 +474,13 @@
         const target = mutation.target;
         if (!target || target.nodeType !== 1) continue;
 
-        // 普通聊天列表 ↔ 分享选择列表切换（只改 class 时也要刷新 shareView）
-        if (target.classList && target.classList.contains('ds-virtual-list')) {
-          needsFlush = true;
+        // React 重置消息类名时，恢复用户手动展开的思考块状态
+        if (target.matches && target.matches(MSG_SELECTOR)) {
+          if (thinkOpenMessages.has(target) && !target.classList.contains(THINK_OPEN_CLASS)) {
+            target.classList.add(THINK_OPEN_CLASS);
+            repositionFoldButtonInMessage(target);
+          }
+          continue;
         }
 
         // React 重渲染可能把 deeptuck-folded 类名整个重置掉（不会触发 childList）
@@ -533,18 +508,16 @@
   }
 
   // ============================================================
-  // 7. 启动 / 停止
+  // 6. 启动 / 停止
   // ============================================================
 
   function resetState() {
     processedMessages = new WeakSet();
-    handledThinkHeaders = new WeakSet();
-    thinkResolvedMessages = new WeakSet();
+    thinkOpenMessages = new WeakSet();
     foldedContents = new WeakSet();
     messageIdentity = new WeakMap();
     pendingMessages.clear();
     composerEl = null;
-    shareView = false;
   }
 
   function start() {
@@ -591,11 +564,14 @@
       observer = null;
     }
 
-    if (document.body) document.body.classList.remove(ACTIVE_CLASS);
-
-    // 关闭插件会一次性展开所有内容，同样锁住当前视口
+    // 关闭插件会一次性展开所有内容，先锁住当前视口
     const anyContent = document.querySelector(MAIN_CONTENT_SELECTOR);
     const snapshot = anyContent ? captureScrollSnapshot(anyContent) : null;
+
+    if (document.body) document.body.classList.remove(ACTIVE_CLASS);
+    document.querySelectorAll('.' + THINK_OPEN_CLASS).forEach(function (el) {
+      el.classList.remove(THINK_OPEN_CLASS);
+    });
 
     document.querySelectorAll('.' + FOLD_CLASS).forEach(function (el) {
       el.classList.remove(FOLD_CLASS, EXPAND_CLASS);
@@ -612,8 +588,12 @@
   }
 
   // ============================================================
-  // 8. 与 popup 通信 + 初始化
+  // 7. 与 popup 通信 + 初始化
   // ============================================================
+
+  // 拦截原生“已思考”标题点击，由我们的类名控制展开/收起
+  window.addEventListener('click', handleThinkHeaderClick, true);
+  window.addEventListener('resize', repositionAllFoldButtons);
 
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener(function (message) {

@@ -84,6 +84,94 @@
     );
   }
 
+  /** 找到真正负责纵向滚动的祖先容器 */
+  function getScrollParent(el) {
+    let node = el ? el.parentElement : null;
+    while (node && node !== document.body && node !== document.documentElement) {
+      const style = getComputedStyle(node);
+      const overflowY = style.overflowY;
+      if (
+        (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+        node.scrollHeight > node.clientHeight
+      ) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    const docEl = document.scrollingElement || document.documentElement;
+    return docEl && docEl.scrollHeight > docEl.clientHeight ? docEl : null;
+  }
+
+  /** 取滚动容器中当前视口最靠上的消息项作为视口锚点 */
+  function pickViewportAnchor(scroller) {
+    if (!scroller) return null;
+    const viewport = scroller.getBoundingClientRect();
+    const container = scroller.querySelector('.ds-virtual-list-visible-items') || scroller;
+
+    // 优先取“顶部刚好落在视口内或下方”的第一项，避免锚到已经滚出视口上方的长消息
+    const items = container.querySelectorAll('[data-virtual-list-item-key]');
+    let anchor = pickFromElements(items, viewport);
+    if (anchor) return anchor;
+
+    return pickFromElements(container.querySelectorAll(MSG_SELECTOR), viewport);
+  }
+
+  function pickFromElements(elements, viewport) {
+    let atOrBelow = null;
+    let atOrBelowTop = Infinity;
+    let intersecting = null;
+    let intersectingTop = Infinity;
+
+    for (let i = 0; i < elements.length; i++) {
+      const rect = elements[i].getBoundingClientRect();
+      if (rect.height <= 0) continue;
+      if (rect.bottom <= viewport.top + 1 || rect.top >= viewport.bottom - 1) continue;
+
+      if (rect.top < intersectingTop) {
+        intersectingTop = rect.top;
+        intersecting = elements[i];
+      }
+      if (rect.top >= viewport.top - 1 && rect.top < atOrBelowTop) {
+        atOrBelowTop = rect.top;
+        atOrBelow = elements[i];
+      }
+    }
+    return atOrBelow || intersecting;
+  }
+
+  /** 折叠/展开前记录当前视口锚点，避免列表高度变化把用户窗口顶飞 */
+  function captureScrollSnapshot(fallbackEl) {
+    const scroller = getScrollParent(fallbackEl);
+    if (!scroller) return null;
+    const anchor = pickViewportAnchor(scroller) || fallbackEl;
+    if (!anchor || !anchor.isConnected) return null;
+    return {
+      scroller: scroller,
+      anchor: anchor,
+      top: anchor.getBoundingClientRect().top,
+    };
+  }
+
+  /** 布局变化后把锚点拉回原来的视口位置；下一帧再校正一次，兼容虚拟列表重算 */
+  function restoreScrollSnapshot(snapshot, deferred) {
+    if (!snapshot) return;
+    const scroller = snapshot.scroller;
+    const anchor = snapshot.anchor;
+    if (!scroller || !scroller.isConnected || !anchor || !anchor.isConnected) return;
+
+    const currentTop = anchor.getBoundingClientRect().top;
+    const delta = currentTop - snapshot.top;
+    if (Math.abs(delta) >= 1) {
+      scroller.scrollTop += delta;
+    }
+
+    if (!deferred) {
+      requestAnimationFrame(function () {
+        restoreScrollSnapshot(snapshot, true);
+      });
+    }
+  }
+
   /** 清理单条消息上可能残留的注入产物（节点被复用时才需要） */
   function clearArtifacts(msg) {
     const folded = msg.querySelectorAll('.' + FOLD_CLASS);
@@ -227,11 +315,17 @@
     // 类名和按钮都在，才是完整折叠态
     if (existingBtn && content.classList.contains(FOLD_CLASS)) return;
 
+    // 高度即将变化，先锁定当前视口锚点
+    const snapshot = captureScrollSnapshot(content);
+
     content.classList.add(FOLD_CLASS);
     foldedContents.add(content);
 
     // 类名还在、只是按钮被抹掉了：只补按钮，不动用户展开状态
-    if (existingBtn) return;
+    if (existingBtn) {
+      restoreScrollSnapshot(snapshot);
+      return;
+    }
     content.classList.remove(EXPAND_CLASS);
 
     const btn = document.createElement('button');
@@ -256,14 +350,18 @@
 
     // 关键：按钮追加在每条对话末尾，不 append 进 React 托管的 .ds-markdown 内部
     insertFoldButton(content, btn);
+    restoreScrollSnapshot(snapshot);
   }
 
   function toggleFold(content, btn) {
     if (!content.isConnected || !btn.isConnected) return;
+
+    const snapshot = captureScrollSnapshot(content);
     const expanded = content.classList.toggle(EXPAND_CLASS);
     const label = btn.querySelector('.' + BTN_TEXT_CLASS);
     if (label) label.textContent = expanded ? '收起' : '展开全文';
     btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    restoreScrollSnapshot(snapshot);
   }
 
   // ============================================================
@@ -495,6 +593,10 @@
 
     if (document.body) document.body.classList.remove(ACTIVE_CLASS);
 
+    // 关闭插件会一次性展开所有内容，同样锁住当前视口
+    const anyContent = document.querySelector(MAIN_CONTENT_SELECTOR);
+    const snapshot = anyContent ? captureScrollSnapshot(anyContent) : null;
+
     document.querySelectorAll('.' + FOLD_CLASS).forEach(function (el) {
       el.classList.remove(FOLD_CLASS, EXPAND_CLASS);
     });
@@ -505,6 +607,7 @@
       el.classList.remove(COMPOSER_CLASS);
     });
 
+    restoreScrollSnapshot(snapshot);
     resetState();
   }
 
